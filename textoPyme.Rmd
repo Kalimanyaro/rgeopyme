@@ -1,0 +1,160 @@
+---
+title: "Ventas Marqueteria"
+output:
+  html_notebook: default
+  html_document: default
+  pdf_document: default
+---
+
+# Los datos
+
+A continuación se muestran los datos cargados y seleccionado para el analsis. Previmente se limpian las direcciones para mejorar el exito de la geocodificación. Existen `r nrow(ventas_area_geo)` ventas en la base de datos que cubren el periodo `r min(ventas_area_geo$fecha)` al `r max(ventas_area_geo$fecha)`.
+```{r datos_crudos, echo=TRUE}
+ventas_area_geo %>%head()
+```
+
+
+# Estadisticas
+## Por cliente
+Se identificaron `r nrow(clientes_dir)` clientes diferentes con base es sus nombres, dirección, ciudad y tipo de cliente. La tabla muestra el numero de compras de cada cliente, el total de ventas 
+```{r echo=TRUE}
+clientes_dir 
+```
+
+
+## Histigrama de cantidad de ventas por valor de la factura
+```{r}
+ggplot(ventas_area_geo, aes(x=valor_factura))+geom_histogram(bins = 100) 
+```
+
+## Clientes ordenados por volumen de ventas
+
+```{r , fig.height=11}
+clientes_dir %>% 
+  head(70) %>%
+ggplot( aes(x= reorder( cliente_mod,-total_ventas),total_ventas, fill=tipo_cliente))+
+  geom_bar(stat = "identity")+theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(title="Top 70 clientes volumen de ventas")
+```
+```{r}
+clientes_dir %>% 
+ggplot( aes(x= reorder( cliente_mod,-total_ventas),total_ventas, fill=tipo_cliente))+
+  geom_bar(stat = "identity")+theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  facet_grid(tipo_cliente~)
+  labs(title="clientes volumen de ventas")
+```
+
+
+## Ventas por tipos de cliente
+```{r fig.align="center"}
+ggplot(ventas_area_geo, aes(x=tipo_cliente,y=valor_factura))+
+  geom_boxplot() + coord_flip() 
+```
+
+```{r}
+ggplot(ventas_area_geo, aes(x=tipo_cliente,y=valor_factura, color= tipo_cliente))+
+geom_jitter(position = position_jitter(0.2),alpha=0.2)+ 
+  stat_summary(fun.y = mean, geom = "point", shape = 18, size = 3, color = "blue")+
+  coord_flip()+ scale_color_brewer(palette="Dark2") +theme_minimal()
+```
+
+
+## Ventas por tipos de cliente por ciudad
+```{r ,fig.height= 10}
+ggplot(ventas_area_geo, aes(x=tipo_cliente,y=valor_factura, color= tipo_cliente))+
+  geom_jitter(position = position_jitter(0.2),alpha=0.2)+ 
+  stat_summary(fun.y = mean, geom = "point", shape = 18, size = 3, color = "blue")+
+  coord_flip()+ 
+  scale_color_brewer(palette="Dark2") +
+  theme_minimal()+
+  facet_wrap(~ciudad_mod,ncol = 3)
+```
+
+
+# Ventas por fecha 
+# Por tipo de cliente
+En la figura se muestra el cada una de las ventas hechas por un tipo de cliente en cualquier ciudad en esa fecha.
+
+```{r}
+ggplot(ventas_area_geo,aes(x=fecha,y=valor_factura,color=tipo_cliente))+
+  geom_point(alpha=0.5,size=1)+
+  facet_wrap(~tipo_cliente)
+```
+
+
+## Mapa de calor de las ventas totales por fecha
+```{r, fig.height=4, fig.width=8}
+calendar_tetris_data(min(ventas_fecha$fecha), max(ventas_fecha$fecha))%>% 
+  left_join(ventas_fecha,by=c("date"="fecha")) %>% 
+  ggplot() + 
+  geom_tile(aes(x=week, y=sday, fill = ventas), colour = "grey") + 
+  #scale_fill_gradientn(colours = c("#D61818","#FFAE63","#FFFFBD","#B5E384"), na.value='transparent') +
+  scale_fill_viridis(na.value="transparent", option = "viridis", direction = -1)+
+  geom_segment(aes(x=x, xend=x, y=ymin, yend=ymax)) +                       # (a)
+  geom_segment(aes(x=xmin, xend=xmax, y=y, yend=y)) +                       # (b)
+  geom_segment(aes(x=dec.x, xend=dec.x, y=dec.ymin, yend=dec.ymax)) +       # (c)
+  geom_segment(aes(x=nye.xmin, xend=nye.xmax, y=nye.y, yend=nye.y)) +       # (d)
+  geom_segment(x=-0.5, xend=51.5, y=7.5, yend=7.5) +                        # put a line along the top
+  geom_segment(x=0.5, xend=52.5, y=0.5, yend=0.5) +                         # put a line along the bottom
+  geom_text(aes(x=month.x, y=month.y, label=month.l), hjust=0.25) +         # (e)
+  scale_x_continuous(expand=c(0.01,0.01)) +                                 # remove excessive left+right padding 
+  coord_equal()+theme_classic()+
+  theme(axis.title.y=element_blank(), axis.title.x=element_blank(),         # remove axis titles
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(), # remove gridlines 
+        legend.title=element_blank(),                                       # remove legend title
+        axis.text.x=element_blank(), axis.ticks.x=element_blank()           # remove x-axis labels and ticks
+  ) + 
+  facet_wrap(~ year, ncol = 1)
+```
+
+# Datos de clientes geocodificados 
+Los datos de cada cliente geocodificados usando el API de Google en R son de la siguiente forma:
+```{r}
+clientes_geocoded %>% head()
+```
+
+
+En total fueron geodoficicados existosamente `r clientes_geocoded %>% drop_na(address)%>% nrow()` de `r nrow(clientes_geocoded)`. Queda por verificar si existen codificcione que son falsos positivos mediante un proceso de verificación.
+
+## Mapa de clientes por ciudad
+El area del circulo es proporcional a las ventas de cada cliente 
+```{r, fig.height=15}
+clientes_geocoded %>% 
+qmplot(data=. ,lon, lat, maptype = "toner-lite", color = ciudad_mod,size=total_ventas,)
+```
+
+## Ventas en Cali Por cliente
+En Cali fueron realizadas `r nrow(ventas_cali)` en el periodo que fueron georeferenciadas. El intervalo de tiempo de estas ventas es desde `r min(ventas_cali$fecha)` al `r max(ventas_cali$fecha)`. 
+
+#Ventas georeferenciadas
+El tamano es propocional al valor de la factura
+```{r }
+qmplot(data= ventas_cali,lon, lat, maptype = "toner-lite", geom="blank") +
+  geom_point(alpha=0.3,color="turquoise3",aes(size=valor_factura,color=tipo_cliente))
+```
+
+#Ventas georreferenciadas por tipos de cliente
+```{r, fig.height=13}
+qmplot(data= ventas_cali,lon, lat, maptype = "toner-lite", geom="blank") +
+    geom_point(alpha=0.3,aes(size=valor_factura,color=tipo_cliente))+
+    facet_wrap(~tipo_cliente)
+```
+
+```{r, fig.height=13}
+ventas_cali %>% 
+  qmplot(data= .,lon, lat, maptype = "toner-lite", geom="blank")+ 
+  #geom_density2d(data =ventas_cali ,aes(x = lon, y = lat), size = 0.3) +
+  stat_density2d(data = ventas_cali,  
+                 aes(x = lon, y = lat, fill = ..level.., alpha = ..level..), 
+                 size = 0.01, bins = 16, geom = "polygon") + 
+  scale_fill_viridis(option = "plasma", direction = 1) + 
+  scale_alpha(range = c(0.1, 0.4), guide = FALSE)+
+  facet_wrap(~tipo_cliente)
+
+```
+
+
+
+
